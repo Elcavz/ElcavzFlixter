@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Status bar height (default) -->
+    <dimen name="status_bar_height">0dp</dimen>
+
+    <!-- For different screen densities -->
+    <dimen name="status_bar_height_small">0dp</dimen>
+    <dimen name="status_bar_height_large">0dp</dimen>
+</resources>
