@@ -1,18 +1,25 @@
 package com.elcavz.elcavzflixter
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
-import android.view.ViewGroup
 
 class MainActivity : AppCompatActivity() {
 
@@ -23,6 +30,19 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled", "SourceLockedOrientationActivity")
     override fun onCreate(savedInstanceState: Bundle?) {
+        window.clearFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+
+        window.clearFlags(
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                    WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
+                    WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION
+        )
+
+        // Also set the fullscreen flag
+        window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+
+        hideSystemUI()
+
         super.onCreate(savedInstanceState)
 
         // Make status bar transparent
@@ -33,6 +53,18 @@ class MainActivity : AppCompatActivity() {
         webView = findViewById(R.id.webView)
         setupWebView()
         webView.loadUrl("https://elcavzflixter.vercel.app")
+    }
+
+    private fun hideSystemUI() {
+        // For Android 4.1+
+        window.decorView.systemUiVisibility = (
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        or View.SYSTEM_UI_FLAG_FULLSCREEN
+                )
     }
 
     private fun makeStatusBarTransparent() {
@@ -121,12 +153,159 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): Boolean {
+                val url = request?.url.toString()
+                return handleUrl(url)
+            }
+
+            @Deprecated("Deprecated in API 24")
+            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                return handleUrl(url ?: "")
+            }
+
+            private fun handleUrl(url: String): Boolean {
+                Log.d("WEBVIEW", "Loading URL: $url")
+
+                // Handle Facebook links
+                if (url.contains("facebook.com") || url.contains("fb://")) {
+                    openFacebookUrl(url)
+                    return true // We handled it
+                }
+
+                // Handle other external links (optional)
+                if (url.startsWith("http://") || url.startsWith("https://")) {
+                    // Check if it's our own domain
+                    if (url.contains("your-website.com")) {
+                        return false // Let WebView handle it
+                    }
+                    // For external websites, open in browser
+                    openInBrowser(url)
+                    return true
+                }
+
+                // Handle tel:, mailto:, etc.
+                if (url.startsWith("tel:") || url.startsWith("mailto:") ||
+                    url.startsWith("sms:") || url.startsWith("whatsapp:")) {
+                    openInExternalApp(url)
+                    return true
+                }
+
+                return false // Let WebView handle normal navigation
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                // Add padding for status bar
-                addStatusBarPadding()
+                // Inject JavaScript to fix Facebook links
+                injectFacebookLinkFix()
             }
         }
+    }
+
+     fun openFacebookUrl(url: String) {
+        try {
+            // Convert web URL to Facebook app URL if possible
+            val facebookUrl = if (url.contains("facebook.com")) {
+                // Extract username or profile ID
+                val pattern = "facebook.com/([^/?]+)".toRegex()
+                val match = pattern.find(url)
+                if (match != null) {
+                    val username = match.groupValues[1]
+                    "fb://profile/$username"
+                } else {
+                    url
+                }
+            } else {
+                url
+            }
+
+            // Try to open in Facebook app
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(facebookUrl))
+
+            // Check if Facebook app is installed
+            val packageManager = packageManager
+            val activities = packageManager.queryIntentActivities(intent, 0)
+            val isFacebookAppInstalled = activities.isNotEmpty()
+
+            if (isFacebookAppInstalled) {
+                startActivity(intent)
+            } else {
+                // Fallback to browser
+                openInBrowser(url)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            // Fallback to browser
+            openInBrowser(url)
+        }
+    }
+
+     fun openInBrowser(url: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, "Cannot open link", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openInExternalApp(url: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun injectFacebookLinkFix() {
+        val javascript = """
+        (function() {
+            // Fix Facebook links to work in WebView
+            document.addEventListener('click', function(e) {
+                var target = e.target;
+                while (target && target.tagName !== 'A') {
+                    target = target.parentElement;
+                }
+                
+                if (target && target.tagName === 'A') {
+                    var href = target.getAttribute('href');
+                    if (href && href.includes('facebook.com')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        // Open via Android interface
+                        if (window.Android && Android.openFacebookLink) {
+                            Android.openFacebookLink(href);
+                        } else {
+                            // Fallback
+                            window.open(href, '_system');
+                        }
+                        return false;
+                    }
+                }
+            }, true);
+            
+            // Override window.open for Facebook links
+            var originalOpen = window.open;
+            window.open = function(url, target, features) {
+                if (url && url.includes('facebook.com')) {
+                    if (window.Android && Android.openFacebookLink) {
+                        Android.openFacebookLink(url);
+                        return null;
+                    }
+                }
+                return originalOpen.call(this, url, target, features);
+            };
+            
+            console.log('Facebook link fix injected');
+        })();
+    """.trimIndent()
+
+        webView.evaluateJavascript(javascript, null)
     }
 
     private fun restoreWebView() {
@@ -192,20 +371,6 @@ class MainActivity : AppCompatActivity() {
         makeStatusBarTransparent()
     }
 
-    private fun addStatusBarPadding() {
-        val statusBarHeight = getStatusBarHeight()
-        webView.setPadding(0, statusBarHeight, 0, 0)
-    }
-
-    private fun getStatusBarHeight(): Int {
-        var result = 0
-        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
-        if (resourceId > 0) {
-            result = resources.getDimensionPixelSize(resourceId)
-        }
-        return result
-    }
-
     override fun onBackPressed() {
         if (isFullscreen) {
             // Manually trigger exit fullscreen
@@ -264,5 +429,42 @@ class MainActivity : AppCompatActivity() {
             webView.destroy()
         }
         super.onDestroy()
+    }
+
+    private fun injectStatusBarColorDetection() {
+        val javascript = """
+        (function() {
+            // Function to detect background color
+            function getBackgroundColor(element) {
+                var bg = window.getComputedStyle(element).backgroundColor;
+                if (bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') {
+                    if (element.tagName === 'HTML') return 'white';
+                    return getBackgroundColor(element.parentElement);
+                }
+                return bg;
+            }
+            
+            // Send color to Android
+            var bgColor = getBackgroundColor(document.body);
+            if (window.Android && Android.setStatusBarColor) {
+                Android.setStatusBarColor(bgColor);
+            }
+            
+            // Listen for page changes
+            var observer = new MutationObserver(function() {
+                var newColor = getBackgroundColor(document.body);
+                if (window.Android && Android.setStatusBarColor) {
+                    Android.setStatusBarColor(newColor);
+                }
+            });
+            
+            observer.observe(document.body, {
+                attributes: true,
+                attributeFilter: ['style', 'class']
+            });
+        })();
+    """.trimIndent()
+
+        webView.evaluateJavascript(javascript, null)
     }
 }

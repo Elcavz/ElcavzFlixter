@@ -1,20 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.ElcavzFlixter" parent="Theme.AppCompat.Light.NoActionBar">
-        <!-- Primary brand color -->
+
+        <!-- FULLSCREEN THEME -->
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:fitsSystemWindows">false</item>
+
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+
+        <!-- Keep your colors -->
         <item name="colorPrimary">@color/purple_500</item>
         <item name="colorPrimaryDark">@color/purple_700</item>
         <item name="colorAccent">@color/teal_200</item>
+    </style>
 
-        <!-- Transparent Status Bar -->
-        <item name="android:statusBarColor">@android:color/transparent</item>
+    <style name="Theme.ElcavzFlixter.Fullscreen" parent="Theme.AppCompat.Light.NoActionBar">
+        <!-- Fullscreen properties -->
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:fitsSystemWindows">false</item>
+
+        <!-- For Android 8.0+ -->
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="o_mr1">shortEdges</item>
+
+        <!-- Remove action bar -->
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+
+        <!-- Transparent navigation bar (optional) -->
         <item name="android:navigationBarColor">@android:color/transparent</item>
 
-        <!-- Remove status bar shadow/overlay -->
-        <item name="android:windowTranslucentStatus">true</item>
-        <item name="android:windowTranslucentNavigation">true</item>
+        <!-- Keep your colors -->
+        <item name="colorPrimary">@color/purple_500</item>
+        <item name="colorPrimaryDark">@color/purple_700</item>
+        <item name="colorAccent">@color/teal_200</item>
+    </style>
 
-        <!-- AppCompat specific -->
+    <style name="Theme.ElcavzFlixter.Splash" parent="Theme.AppCompat.Light.NoActionBar">
+        <!-- Fullscreen for splash ONLY -->
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@drawable/splash_background</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowNoTitle">true</item>
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
     </style>
