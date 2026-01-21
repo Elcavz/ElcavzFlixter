@@ -57,14 +57,8 @@
             android:exported="true"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode"
             android:windowSoftInputMode="adjustResize"
-            android:screenOrientation="portrait"
-            android:hardwareAccelerated="true">
-            android:theme="@style/Theme.ElcavzFlixter.Fullscreen"
-
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+            android:hardwareAccelerated="true"
+            android:theme="@style/Theme.ElcavzFlixter.Fullscreen">
 
         </activity>
 

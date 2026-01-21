@@ -18,7 +18,9 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
+import android.graphics.Bitmap
 import androidx.core.view.WindowCompat
 
 class MainActivity : AppCompatActivity() {
@@ -28,26 +30,27 @@ class MainActivity : AppCompatActivity() {
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
 
+    companion object {
+        // Static variable to track if website is loaded
+        var isWebsiteLoaded = false
+
+        // Function to reset for new app launches
+        fun resetLoadingState() {
+            isWebsiteLoaded = false
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled", "SourceLockedOrientationActivity")
     override fun onCreate(savedInstanceState: Bundle?) {
         window.clearFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
-
         window.clearFlags(
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                     WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
                     WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION
         )
 
-        // Also set the fullscreen flag
-        window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-
-        hideSystemUI()
-
         super.onCreate(savedInstanceState)
-
-        // Make status bar transparent
-        makeStatusBarTransparent()
-
+        resetLoadingState()
         setContentView(R.layout.activity_main)
 
         webView = findViewById(R.id.webView)
@@ -56,7 +59,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun hideSystemUI() {
-        // For Android 4.1+
         window.decorView.systemUiVisibility = (
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                         or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -67,11 +69,12 @@ class MainActivity : AppCompatActivity() {
                 )
     }
 
-    private fun makeStatusBarTransparent() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            window.statusBarColor = Color.TRANSPARENT
-        }
-        WindowCompat.setDecorFitsSystemWindows(window, false)
+    private fun showSystemUI() {
+        window.decorView.systemUiVisibility = (
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                )
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -85,11 +88,91 @@ class MainActivity : AppCompatActivity() {
         // Add JavaScript interface
         webView.addJavascriptInterface(WebAppInterface(this), "Android")
 
-        // Set custom WebChromeClient
-        webView.webChromeClient = object : WebChromeClient() {
+        // Set WebChromeClient with fullscreen handling
+        webView.webChromeClient = createWebChromeClient()
+
+        webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): Boolean {
+                val url = request?.url.toString()
+                return handleUrl(url)
+            }
+
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                super.onPageStarted(view, url, favicon)
+                // Website started loading
+                isWebsiteLoaded = false
+            }
+
+            @Deprecated("Deprecated in API 24")
+            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                return handleUrl(url ?: "")
+            }
+
+            private fun handleUrl(url: String): Boolean {
+
+                // Handle Facebook links
+                if (url.contains("facebook.com") || url.contains("fb://")) {
+                    openFacebookUrl(url)
+                    return true
+                }
+
+                if (url.startsWith("http://") || url.startsWith("https://")) {
+                    if (url.contains("elcavzflixter.vercel.app")) {
+                        return false
+                    }
+                    openInBrowser(url)
+                    return true
+                }
+
+                // Handle tel:, mailto:, etc.
+                if (url.startsWith("tel:") || url.startsWith("mailto:") ||
+                    url.startsWith("sms:") || url.startsWith("whatsapp:")) {
+                    openInExternalApp(url)
+                    return true
+                }
+
+                return false
+            }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+
+                // Website completely loaded!
+                isWebsiteLoaded = true
+                // You could also send a broadcast here
+                sendWebsiteLoadedBroadcast()
+                // Re-inject WebChromeClient for each page load
+                webView.webChromeClient = createWebChromeClient()
+                injectFacebookLinkFix()
+            }
+
+            override fun onReceivedError(
+                view: WebView?,
+                errorCode: Int,
+                description: String?,
+                failingUrl: String?
+            ) {
+                super.onReceivedError(view, errorCode, description, failingUrl)
+                // Even on error, consider it "loaded" to proceed
+                isWebsiteLoaded = true
+                sendWebsiteLoadedBroadcast()
+            }
+        }
+    }
+
+    private fun sendWebsiteLoadedBroadcast() {
+        // Send broadcast to notify splash activity
+        val intent = Intent("WEBSITE_LOADED")
+        sendBroadcast(intent)
+    }
+
+    private fun createWebChromeClient(): WebChromeClient {
+        return object : WebChromeClient() {
 
             override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
-                // Store references
                 if (customView != null) {
                     callback?.onCustomViewHidden()
                     return
@@ -98,12 +181,12 @@ class MainActivity : AppCompatActivity() {
                 customView = view
                 customViewCallback = callback
 
-                // Hide the WebView
-                webView.visibility = View.GONE
-
-                // Add custom view to layout
                 if (view != null) {
-                    val decorView = window.decorView as android.view.ViewGroup
+                    // Hide WebView
+                    webView.visibility = View.GONE
+
+                    // Add custom view to window
+                    val decorView = window.decorView as ViewGroup
                     decorView.addView(view, ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
@@ -119,96 +202,44 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onHideCustomView() {
-                // Check if we're in fullscreen
                 if (customView == null || customViewCallback == null) {
                     return
                 }
 
-                // Restore portrait orientation FIRST
+                // Restore portrait orientation
                 requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
-                // Remove custom view from layout
-                if (customView != null) {
-                    val decorView = window.decorView as android.view.ViewGroup
-                    decorView.removeView(customView)
-                }
+                // Remove custom view
+                val decorView = window.decorView as ViewGroup
+                decorView.removeView(customView)
 
-                // Call callback to notify WebView
+                // Notify callback
                 customViewCallback?.onCustomViewHidden()
 
                 // Clear references
                 customView = null
                 customViewCallback = null
 
-                // Exit fullscreen mode
+                // Exit fullscreen
                 exitFullscreenMode()
-
-                // Show WebView again
-                webView.visibility = View.VISIBLE
                 isFullscreen = false
 
-                // IMPORTANT: Reload the WebView state
-                restoreWebView()
-            }
-        }
+                // Show WebView
+                webView.visibility = View.VISIBLE
 
-        webView.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(
-                view: WebView?,
-                request: WebResourceRequest?
-            ): Boolean {
-                val url = request?.url.toString()
-                return handleUrl(url)
-            }
+                // Force WebView redraw
+                webView.invalidate()
+                webView.requestLayout()
 
-            @Deprecated("Deprecated in API 24")
-            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                return handleUrl(url ?: "")
-            }
-
-            private fun handleUrl(url: String): Boolean {
-                Log.d("WEBVIEW", "Loading URL: $url")
-
-                // Handle Facebook links
-                if (url.contains("facebook.com") || url.contains("fb://")) {
-                    openFacebookUrl(url)
-                    return true // We handled it
-                }
-
-                // Handle other external links (optional)
-                if (url.startsWith("http://") || url.startsWith("https://")) {
-                    // Check if it's our own domain
-                    if (url.contains("your-website.com")) {
-                        return false // Let WebView handle it
-                    }
-                    // For external websites, open in browser
-                    openInBrowser(url)
-                    return true
-                }
-
-                // Handle tel:, mailto:, etc.
-                if (url.startsWith("tel:") || url.startsWith("mailto:") ||
-                    url.startsWith("sms:") || url.startsWith("whatsapp:")) {
-                    openInExternalApp(url)
-                    return true
-                }
-
-                return false // Let WebView handle normal navigation
-            }
-
-            override fun onPageFinished(view: WebView?, url: String?) {
-                super.onPageFinished(view, url)
-                // Inject JavaScript to fix Facebook links
-                injectFacebookLinkFix()
+                // IMPORTANT: Create a new WebChromeClient for next video
+                webView.webChromeClient = createWebChromeClient()
             }
         }
     }
 
-     fun openFacebookUrl(url: String) {
+    fun openFacebookUrl(url: String) {
         try {
-            // Convert web URL to Facebook app URL if possible
             val facebookUrl = if (url.contains("facebook.com")) {
-                // Extract username or profile ID
                 val pattern = "facebook.com/([^/?]+)".toRegex()
                 val match = pattern.find(url)
                 if (match != null) {
@@ -221,10 +252,7 @@ class MainActivity : AppCompatActivity() {
                 url
             }
 
-            // Try to open in Facebook app
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(facebookUrl))
-
-            // Check if Facebook app is installed
             val packageManager = packageManager
             val activities = packageManager.queryIntentActivities(intent, 0)
             val isFacebookAppInstalled = activities.isNotEmpty()
@@ -232,17 +260,15 @@ class MainActivity : AppCompatActivity() {
             if (isFacebookAppInstalled) {
                 startActivity(intent)
             } else {
-                // Fallback to browser
                 openInBrowser(url)
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            // Fallback to browser
             openInBrowser(url)
         }
     }
 
-     fun openInBrowser(url: String) {
+    fun openInBrowser(url: String) {
         try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             startActivity(intent)
@@ -338,7 +364,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun enterFullscreenMode() {
-        // Hide system bars
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             window.decorView.systemUiVisibility = (
                     View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -352,30 +377,26 @@ class MainActivity : AppCompatActivity() {
 
         // Keep screen on
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        supportActionBar?.hide()
     }
 
     private fun exitFullscreenMode() {
-        // Show system bars
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            window.decorView.systemUiVisibility = (
-                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    )
-        }
+        // Show system UI
+        showSystemUI()
 
         // Allow screen to turn off
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // Restore status bar
-        makeStatusBarTransparent()
+        // Show action bar
+        supportActionBar?.show()
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
     override fun onBackPressed() {
         if (isFullscreen) {
             // Manually trigger exit fullscreen
             if (customView != null && customViewCallback != null) {
-                onHideCustomView()
+                (webView.webChromeClient as? WebChromeClient)?.onHideCustomView()
             }
         } else if (webView.canGoBack()) {
             webView.goBack()
@@ -408,7 +429,8 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         if (isFullscreen) {
-            onHideCustomView()
+            exitFullscreenMode()
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
         webView.onPause()
     }
@@ -418,17 +440,44 @@ class MainActivity : AppCompatActivity() {
         webView.onResume()
         if (isFullscreen) {
             enterFullscreenMode()
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+
+        if (isFullscreen) {
+            // Maintain fullscreen in landscape
+            if (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                enterFullscreenMode()
+            }
         }
     }
 
     override fun onDestroy() {
-        if (webView != null) {
+        if (::webView.isInitialized) {
             webView.loadData("", "text/html", "utf-8")
             webView.clearHistory()
             webView.clearCache(true)
             webView.destroy()
         }
         super.onDestroy()
+        resetLoadingState()
+    }
+
+    private fun cleanupFullscreen() {
+        if (customView != null) {
+            val decorView = window.decorView as ViewGroup
+            decorView.removeView(customView)
+            customView = null
+        }
+        if (customViewCallback != null) {
+            customViewCallback = null
+        }
+        isFullscreen = false
+        webView.visibility = View.VISIBLE
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
     }
 
     private fun injectStatusBarColorDetection() {
